@@ -1045,6 +1045,10 @@
             </div>
         );
         }
+
+        // === 启动 APP 的关键代码（之前漏掉了这里） ===
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>

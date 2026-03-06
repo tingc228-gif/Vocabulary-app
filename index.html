@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Vocab Studio</title>
+    
+    <!-- Tailwind CSS (用于快速布局和样式) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel (用于在浏览器中直接编译 React 的 JSX 语法) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- ES Modules 依赖映射 (直接从云端加载 React 和 图标库) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0"
+        }
+    }
+    </script>
+
+    <style>
+        /* 自定义滚动条及3D翻转卡片所需的 CSS 样式 */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        
+        /* 防止移动端点击闪烁 */
+        * { -webkit-tap-highlight-color: transparent; }
+        body { overscroll-behavior-y: none; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans antialiased h-screen overflow-hidden">
+    
+    <!-- React App 的挂载点 -->
+    <div id="root" class="h-full"></div>
+
+    <!-- 完整的 React 核心逻辑 -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { BookOpen, Brain, Hammer, Edit3, FileText, ArrowLeft, Check, X, RefreshCw, Lightbulb, Image as ImageIcon, Loader2, Database, PlusCircle, Trash2, Wand2, Settings, AlertCircle } from 'lucide-react';
+
+        // --- API HELPER FUNCTION ---
+        const fetchWithRetry = async (url, options, retries = 3) => {
+        const delays = [1000, 2000, 4000];
+        for (let i = 0; i < retries; i++) {
+            try {
+            const res = await fetch(url, options);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(`HTTP Error: ${res.status} ${errData.error?.message || ''}`);
+            }
+            return await res.json();
+            } catch (err) {
+            if (i === retries - 1) throw err;
+            await new Promise(r => setTimeout(r, delays[i]));
+            }
+        }
+        };
+
+        // --- DATA: 默认词库 ---
+        const defaultVocab = [
+        { id: 1, word: "brought in", definition: "introduced or earned", type: "phrasal verb", example: "The new sales strategy ____ a lot of money." },
+        { id: 2, word: "a band of musicians", definition: "a group playing music together", type: "noun phrase", example: "We hired ____ to play at the wedding reception." },
+        { id: 3, word: "a choir", definition: "a group of singers", type: "noun phrase", example: "She sings beautifully and recently joined ____." },
+        { id: 4, word: "a bundle of nerves", definition: "very nervous", type: "idiom", example: "Before the big stage performance, she was ____." },
+        { id: 5, word: "break a leg", definition: "good luck", type: "idiom", example: "Before she went on stage, I smiled and told her to ____!" },
+        { id: 6, word: "break the ice", definition: "make people feel comfortable", type: "idiom", example: "He told a funny joke to ____ at the meeting." },
+        { id: 7, word: "astounded", definition: "greatly surprised someone", type: "adjective", example: "I was completely ____ by the amazing magic trick." },
+        { id: 8, word: "appreciatively", definition: "in a thankful way", type: "adverb", example: "He nodded ____ when she helped him carry the bags." },
+        { id: 9, word: "a sweet tooth", definition: "liking sweet food", type: "idiom", example: "I can never resist chocolate; I have such ____." },
+        { id: 10, word: "a whale of a time", definition: "a lot of fun", type: "idiom", example: "We went to the theme park and had ____." },
+        { id: 11, word: "a fish out of water", definition: "feeling uncomfortable", type: "idiom", example: "At the fancy corporate party, I felt like ____." },
+        { id: 12, word: "broke his back", definition: "worked very hard", type: "idiom", example: "He ____ trying to finish the difficult project on time." },
+        { id: 13, word: "an arm and a leg", definition: "very expensive", type: "idiom", example: "That luxury sports car costs ____." },
+        { id: 14, word: "a green-eyed monster", definition: "jealousy", type: "idiom", example: "When his friend won the prize, the ____ took over." },
+        { id: 15, word: "bit his head off", definition: "spoke angrily to someone", type: "idiom", example: "I only asked a question, but he completely ____." },
+        { id: 16, word: "bystanders", definition: "people who are nearby but not involved", type: "noun", example: "The police asked the ____ if they saw the car accident." },
+        { id: 17, word: "bawled", definition: "cried loudly and noisily", type: "verb", example: "The baby ____ loudly when his toy was taken away." },
+        { id: 18, word: "a breath of fresh air", definition: "someone refreshing and new", type: "idiom", example: "The new manager's positive attitude is ____." },
+        { id: 19, word: "affectionately", definition: "in a loving way", type: "adverb", example: "She smiled ____ at her little baby brother." },
+        { id: 20, word: "all ears", definition: "listening carefully", type: "idiom", example: "Tell me your secret story, I am ____." }
+        ];
+
+        // --- COMPONENTS ---
+
+        // 1. FLASHCARDS
+        const Flashcards = ({ vocabList, onBack }) => {
+        const [index, setIndex] = useState(0);
+        const [flipped, setFlipped] = useState(false);
+
+        if (!vocabList || vocabList.length === 0) return <EmptyState onBack={onBack} />;
+
+        const nextCard = () => {
+            setFlipped(false);
+            setTimeout(() => setIndex((prev) => (prev + 1) % vocabList.length), 200);
+        };
+
+        const prevCard = () => {
+            setFlipped(false);
+            setTimeout(() => setIndex((prev) => (prev - 1 + vocabList.length) % vocabList.length), 200);
+        };
+
+        const currentItem = vocabList[index];
+
+        return (
+            <div className="flex flex-col items-center justify-center h-full p-4 md:p-8 bg-blue-50">
+            <div className="w-full max-w-3xl mb-8 flex justify-between items-center">
+                <button onClick={onBack} className="flex items-center text-blue-600 font-bold text-xl hover:underline">
+                <ArrowLeft className="w-6 h-6 mr-2" /> 返回菜单
+                </button>
+                <span className="text-blue-400 font-medium text-xl">{index + 1} / {vocabList.length}</span>
+            </div>
+
+            <div onClick={() => setFlipped(!flipped)} className="relative w-full max-w-3xl h-[450px] md:h-[500px] cursor-pointer perspective-1000 group">
+                <div className={`relative w-full h-full duration-500 transform-style-3d transition-transform ${flipped ? 'rotate-y-180' : ''}`}>
+                {/* Front */}
+                <div className="absolute w-full h-full bg-white rounded-3xl shadow-xl flex flex-col items-center justify-center p-6 md:p-10 backface-hidden border-b-8 border-blue-500">
+                    <h2 className="text-4xl md:text-6xl font-black text-gray-800 text-center mb-6 leading-tight">{currentItem.word}</h2>
+                    <span className="px-4 py-2 bg-blue-100 text-blue-600 rounded-full text-lg font-bold">{currentItem.type || 'Vocabulary'}</span>
+                    <p className="mt-12 text-blue-300 font-bold uppercase tracking-widest text-sm animate-pulse">点击翻转卡片</p>
+                </div>
+                {/* Back */}
+                <div className="absolute w-full h-full bg-blue-500 rounded-3xl shadow-xl flex flex-col items-center justify-center p-6 md:p-10 rotate-y-180 backface-hidden text-white overflow-y-auto">
+                    <div className="w-full bg-blue-600/50 rounded-xl py-4 mb-6 border border-blue-400/50 backdrop-blur-sm flex flex-col items-center shrink-0">
+                        <h3 className="text-3xl md:text-5xl font-black text-white text-center tracking-tight drop-shadow-md mb-2">{currentItem.word}</h3>
+                        <span className="bg-white/20 text-white/90 px-3 py-1 rounded-full text-sm font-bold uppercase tracking-wider border border-white/10">
+                            {currentItem.type || 'Vocabulary'}
+                        </span>
+                    </div>
+                    <div className="text-center space-y-4 md:space-y-6 flex-1 flex flex-col justify-center w-full">
+                    <div>
+                        <h3 className="text-blue-200 uppercase tracking-widest text-sm font-bold mb-2">英文释义</h3>
+                        <p className="text-xl md:text-2xl font-bold leading-tight">{currentItem.definition}</p>
+                    </div>
+                    {currentItem.example && (
+                        <div className="bg-blue-600/30 p-4 rounded-xl border border-blue-500/30">
+                        <h3 className="text-blue-200 uppercase tracking-widest text-xs font-bold mb-2">例句</h3>
+                        <p className="text-base md:text-xl italic opacity-90 leading-relaxed">
+                            "{currentItem.example.split('____').map((part, i, arr) => (
+                                <React.Fragment key={i}>
+                                    {part}
+                                    {i < arr.length - 1 && (
+                                        <span className="font-black text-yellow-300 not-italic mx-1 bg-blue-800/30 px-1 rounded">
+                                            {currentItem.word}
+                                        </span>
+                                    )}
+                                </React.Fragment>
+                            ))}"
+                        </p>
+                        </div>
+                    )}
+                    </div>
+                </div>
+                </div>
+            </div>
+
+            <div className="flex gap-4 md:gap-6 mt-8 w-full max-w-3xl justify-center">
+                <button onClick={prevCard} className="flex-1 py-4 bg-white text-blue-600 rounded-2xl shadow-lg font-bold text-lg md:text-xl hover:bg-gray-50 border-2 border-transparent hover:border-blue-200 transition-all">上一张</button>
+                <button onClick={nextCard} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl shadow-lg font-bold text-lg md:text-xl hover:bg-blue-700 transition-all">下一张</button>
+            </div>
+            </div>
+        );
+        };
+
+        // 2. SPELLING
+        const Spelling = ({ vocabList, onBack }) => {
+            const [qIndex, setQIndex] = useState(0);
+            const [input, setInput] = useState('');
+            const [status, setStatus] = useState('idle');
+            const [hintCount, setHintCount] = useState(0); 
+            
+            const isComplete = vocabList && vocabList.length > 0 ? qIndex >= vocabList.length : false;
+            const currentWord = (!isComplete && vocabList && vocabList.length > 0) ? vocabList[qIndex] : null;
+
+            useEffect(() => {
+                if (!isComplete) {
+                    setInput('');
+                    setStatus('idle');
+                    setHintCount(0);
+                }
+            }, [qIndex, isComplete]);
+
+            if (!vocabList || vocabList.length === 0) return <EmptyState onBack={onBack} />;
+
+            const checkSpelling = (e) => {
+                e.preventDefault();
+                if (input.toLowerCase().trim() === currentWord.word.toLowerCase()) {
+                    setStatus('correct');
+                    setTimeout(() => {
+                        setQIndex((prev) => prev + 1);
+                    }, 1000);
+                } else {
+                    setStatus('wrong');
+                }
+            };
+
+            const showNextHint = () => {
+                if (currentWord) setHintCount(prev => Math.min(prev + 1, currentWord.word.length));
+            };
+
+            if (isComplete) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full bg-orange-50 p-6">
+                        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-lg w-full">
+                            <Edit3 className="w-20 h-20 mx-auto text-orange-500 mb-6" />
+                            <h2 className="text-4xl font-black text-orange-800 mb-4">恭喜过关！</h2>
+                            <p className="text-xl text-gray-500 mb-8">你已经成功拼写了所有 {vocabList.length} 个单词。</p>
+                            <div className="flex gap-4 justify-center">
+                                <button onClick={onBack} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold md:text-lg hover:bg-gray-300 transition-colors">返回菜单</button>
+                                <button onClick={() => setQIndex(0)} className="px-6 py-3 bg-orange-500 text-white rounded-xl font-bold md:text-lg hover:bg-orange-600 transition-colors shadow-lg">再来一遍</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="h-full bg-orange-50 flex flex-col p-4 md:p-8">
+                    <div className="w-full max-w-3xl mx-auto flex justify-between items-center mb-6">
+                        <button onClick={onBack} className="self-start text-orange-700 font-bold text-xl flex items-center hover:underline"><ArrowLeft className="w-6 h-6 mr-2"/> 返回</button>
+                        <span className="text-orange-400 font-bold text-lg">{qIndex + 1} / {vocabList.length}</span>
+                    </div>
+                    
+                    <div className="flex-1 flex flex-col items-center justify-center max-w-3xl mx-auto w-full">
+                        <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-xl w-full text-center border-b-8 border-orange-300 relative">
+                            <p className="text-gray-400 font-bold uppercase tracking-widest mb-4">拼写对应释义的单词：</p>
+                            <p className="text-2xl md:text-3xl font-bold text-gray-800 mb-10">{currentWord.definition}</p>
+                            
+                            <div className="h-8 mb-4">
+                                {hintCount > 0 && (
+                                    <span className="text-orange-400 font-mono text-xl md:text-2xl tracking-[0.5em] font-bold">
+                                        {currentWord.word.substring(0, hintCount)}
+                                        <span className="text-gray-300 tracking-normal">...</span>
+                                    </span>
+                                )}
+                            </div>
+
+                            <form onSubmit={checkSpelling}>
+                                <div className="relative">
+                                    <input type="text" value={input} onChange={(e) => { setInput(e.target.value); setStatus('idle'); }}
+                                        className={`w-full text-center text-3xl md:text-5xl font-bold py-4 border-b-4 bg-transparent focus:outline-none transition-colors mb-4 ${status === 'correct' ? 'border-green-500 text-green-600' : status === 'wrong' ? 'border-red-500 text-red-600' : 'border-orange-200 text-gray-800'}`}
+                                        placeholder="输入单词..." autoFocus />
+                                    
+                                    <button type="button" onClick={showNextHint} className="absolute right-0 top-1/2 transform -translate-y-1/2 p-2 text-orange-300 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors" title="获取提示">
+                                        <Lightbulb className="w-8 h-8" />
+                                    </button>
+                                </div>
+                                <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xl md:text-2xl py-4 rounded-2xl shadow-md mt-6 active:scale-95 transition-transform">检查答案</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // 3. WHACK-A-MOLE
+        const WhackAMole = ({ vocabList, onBack }) => {
+        const [queue, setQueue] = useState([]);
+        const [wrongQueue, setWrongQueue] = useState([]);
+        const [currentQIndex, setCurrentQIndex] = useState(0);
+        const [score, setScore] = useState(0);
+        const [showResult, setShowResult] = useState(false);
+        const [selected, setSelected] = useState(null);
+        const [isRoundOver, setIsRoundOver] = useState(false);
+        const [options, setOptions] = useState([]);
+
+        const startNewGame = () => {
+            if (!vocabList || vocabList.length < 4) return;
+            const shuffled = [...vocabList].sort(() => 0.5 - Math.random());
+            setQueue(shuffled);
+            setWrongQueue([]);
+            setCurrentQIndex(0);
+            setScore(0);
+            setShowResult(false);
+            setSelected(null);
+            setIsRoundOver(false);
+        };
+
+        useEffect(() => { 
+            startNewGame(); 
+        }, [vocabList]); 
+
+        const currentQuestion = queue[currentQIndex];
+
+        useEffect(() => {
+            if (!currentQuestion || !vocabList || vocabList.length < 4) return;
+            const wrongOptions = vocabList.filter(v => v.id !== currentQuestion.id).sort(() => 0.5 - Math.random()).slice(0, 3);
+            setOptions([currentQuestion, ...wrongOptions].sort(() => 0.5 - Math.random()));
+            setSelected(null);
+        }, [currentQuestion, currentQIndex, vocabList]);
+
+        if (!vocabList || vocabList.length < 4) return <EmptyState onBack={onBack} message="词库中至少需要4个单词才能开始游戏。" />;
+
+        const handleSelect = (option) => {
+            if (selected) return;
+            setSelected(option);
+            const isCorrect = option.id === currentQuestion.id;
+            if (isCorrect) { setScore(s => s + 10); } else { setWrongQueue(prev => [...prev, currentQuestion]); }
+            setTimeout(() => {
+            if (currentQIndex < queue.length - 1) { setCurrentQIndex(prev => prev + 1); } else {
+                const nextRoundQueue = isCorrect ? wrongQueue : [...wrongQueue, currentQuestion];
+                if (nextRoundQueue.length > 0) {
+                    setIsRoundOver(true);
+                    setTimeout(() => { setQueue(nextRoundQueue); setWrongQueue([]); setCurrentQIndex(0); setIsRoundOver(false); }, 2000);
+                } else { setShowResult(true); }
+            }
+            }, 1500);
+        };
+
+        if (showResult) return (
+            <div className="flex flex-col items-center justify-center h-full bg-cyan-50 p-6">
+                <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-lg w-full">
+                    <Hammer className="w-20 h-20 mx-auto text-cyan-500 mb-6" />
+                    <h2 className="text-4xl font-black text-cyan-800 mb-4">挑战成功！</h2>
+                    <p className="text-xl text-gray-500 mb-8">总得分: {score}</p>
+                    <div className="flex gap-4 justify-center"><button onClick={onBack} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold text-lg">返回菜单</button><button onClick={startNewGame} className="px-6 py-3 bg-cyan-600 text-white rounded-xl font-bold text-lg">再玩一次</button></div>
+                </div>
+            </div>
+        );
+
+        if (isRoundOver) return <div className="flex flex-col items-center justify-center h-full bg-cyan-800/90 text-white p-6 absolute inset-0 z-50"><RefreshCw className="w-20 h-20 animate-spin mb-4" /><h2 className="text-3xl font-bold">错题复习轮！</h2><p className="mt-2 text-lg">让我们把错的补回来。</p></div>;
+        if (!currentQuestion) return null;
+
+        return (
+            <div className="h-full flex flex-col bg-cyan-50 p-4 md:p-8">
+            <div className="flex justify-between items-center mb-6"><button onClick={onBack} className="text-cyan-700 font-bold text-lg flex items-center bg-white px-4 py-2 rounded-xl shadow-sm"><ArrowLeft className="w-5 h-5 mr-2"/> 返回</button><div className="text-lg font-bold text-cyan-800 bg-white px-4 py-1 rounded-lg shadow-sm">进度: {currentQIndex + 1} / {queue.length} {queue.length < vocabList.length && <span className="text-red-500 ml-2 text-sm">(复习)</span>}</div></div>
+            <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full justify-center">
+                <div className="bg-white p-6 md:p-12 rounded-3xl shadow-lg border-b-8 border-cyan-500 mb-8 text-center relative overflow-hidden">
+                    <span className="text-cyan-500 font-bold uppercase tracking-widest text-sm mb-4 block">完成句子填空</span>
+                    <h3 className="text-xl md:text-3xl font-bold text-gray-800 leading-snug">
+                        {currentQuestion.example ? currentQuestion.example.split('____').map((part, i, arr) => (<React.Fragment key={i}>{part}{i < arr.length - 1 && (<span className="inline-block border-b-4 border-cyan-300 px-4 text-cyan-600 min-w-[80px]">{selected ? currentQuestion.word : "?"}</span>)}</React.Fragment>)) : currentQuestion.definition}
+                    </h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {options.map((opt) => {
+                    let stateClass = "bg-white border-transparent hover:border-cyan-200 shadow-md text-gray-600";
+                    if (selected) { if (opt.id === currentQuestion.id) stateClass = "bg-green-500 border-green-600 text-white shadow-green-200"; else if (opt === selected) stateClass = "bg-red-500 border-red-600 text-white shadow-red-200"; else stateClass = "bg-gray-100 opacity-50 border-transparent"; }
+                    return (<button key={opt.id} onClick={() => handleSelect(opt)} disabled={!!selected} className={`p-4 md:p-6 rounded-2xl text-left font-bold text-lg md:text-xl transition-all border-b-4 transform active:scale-98 flex items-center justify-between ${stateClass}`}><span>{opt.word}</span>{selected && opt.id === currentQuestion.id && <Check className="w-6 h-6" />}{selected && opt === selected && opt.id !== currentQuestion.id && <X className="w-6 h-6" />}</button>)
+                })}
+                </div>
+            </div>
+            </div>
+        );
+        };
+
+        // 4. CONTEXT MASTER
+        const ContextMaster = ({ vocabList, onBack }) => {
+        const [queue, setQueue] = useState([]);
+        const [wrongQueue, setWrongQueue] = useState([]);
+        const [currentQIndex, setCurrentQIndex] = useState(0);
+        const [showResult, setShowResult] = useState(false);
+        const [selected, setSelected] = useState(null);
+        const [isRoundOver, setIsRoundOver] = useState(false);
+        const [options, setOptions] = useState([]); 
+
+        useEffect(() => { 
+            if (vocabList && vocabList.length >= 4) {
+                setQueue([...vocabList].sort(() => 0.5 - Math.random())); 
+                setWrongQueue([]); 
+                setCurrentQIndex(0); 
+            }
+        }, [vocabList]);
+
+        const currentQuestion = queue[currentQIndex];
+
+        useEffect(() => { 
+            if(!currentQuestion || !vocabList || vocabList.length < 4) return; 
+            const others = vocabList.filter(v => v.id !== currentQuestion.id).sort(() => 0.5 - Math.random()).slice(0, 3); 
+            setOptions([currentQuestion, ...others].sort(() => 0.5 - Math.random())); 
+            setSelected(null); 
+        }, [currentQuestion, currentQIndex, vocabList]);
+
+        if (!vocabList || vocabList.length < 4) return <EmptyState onBack={onBack} message="词库中至少需要4个单词才能开始。" />;
+
+        const handleSelect = (option) => {
+            if (selected) return; setSelected(option); const isCorrect = option.id === currentQuestion.id;
+            if (!isCorrect) { setWrongQueue(prev => [...prev, currentQuestion]); }
+            setTimeout(() => {
+            if (currentQIndex < queue.length - 1) { setCurrentQIndex(c => c + 1); } else {
+                const finalWrongQueue = isCorrect ? wrongQueue : [...wrongQueue, currentQuestion];
+                if (finalWrongQueue.length > 0) { setIsRoundOver(true); setTimeout(() => { setQueue(finalWrongQueue); setWrongQueue([]); setCurrentQIndex(0); setIsRoundOver(false); }, 2000); } else { setShowResult(true); }
+            }
+            }, 1200);
+        };
+
+        if (showResult) return <div className="flex flex-col items-center justify-center h-full bg-green-50 p-6"><div className="bg-white p-10 rounded-3xl shadow-xl text-center"><Brain className="w-20 h-20 mx-auto text-green-500 mb-6" /><h2 className="text-4xl font-black text-green-800 mb-4">完美通关！</h2><button onClick={onBack} className="px-8 py-4 bg-green-600 text-white rounded-2xl font-bold text-xl shadow-lg hover:bg-green-700">返回菜单</button></div></div>;
+        if (isRoundOver) return <div className="flex flex-col items-center justify-center h-full bg-green-800/90 text-white p-6 absolute inset-0 z-50"><RefreshCw className="w-20 h-20 animate-spin mb-4" /><h2 className="text-3xl font-bold">错题复习轮！</h2></div>;
+        if (!currentQuestion) return null;
+
+        return (
+            <div className="h-full flex flex-col bg-green-50 p-4 md:p-8">
+            <button onClick={onBack} className="self-start text-green-700 font-bold mb-6 text-xl flex items-center"><ArrowLeft className="w-6 h-6 mr-2"/> 返回</button>
+            <div className="flex-1 max-w-4xl mx-auto w-full flex flex-col justify-center">
+                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-lg border-l-8 border-green-500 mb-8"><div className="flex justify-between items-center mb-4"><span className="text-green-600 font-bold uppercase tracking-widest block">匹配英文释义</span>{queue.length < vocabList.length && <span className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-xs font-bold uppercase">复习模式</span>}</div><p className="text-xl md:text-3xl font-medium text-gray-800">{currentQuestion.definition}</p></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{options.map((opt) => (<button key={opt.id} onClick={() => handleSelect(opt)} className={`p-4 md:p-6 rounded-2xl text-lg font-bold transition-all border-b-4 text-left ${selected ? opt.id === currentQuestion.id ? 'bg-green-500 border-green-700 text-white' : opt === selected ? 'bg-red-500 border-red-700 text-white' : 'bg-white opacity-40' : 'bg-white hover:bg-green-50 text-gray-700 border-gray-200'}`}>{opt.word}</button>))}</div>
+            </div>
+            </div>
+        );
+        }
+
+        // 5. DYNAMIC READING CLOZE
+        const ReadingCloze = ({ vocabList, storyData, onGenerate, isGenerating, onBack, onReset, userApiKey }) => {
+        const [answers, setAnswers] = useState({});
+        const [showResults, setShowResults] = useState(false);
+        const [score, setScore] = useState(0);
+        const [activeBlankId, setActiveBlankId] = useState(null);
+        const [isSaving, setIsSaving] = useState(false);
+        const [activeStoryIdx, setActiveStoryIdx] = useState(0);
+        const [storyCount, setStoryCount] = useState(1);
+        const [wordBank, setWordBank] = useState([]);
+
+        useEffect(() => {
+            setAnswers({});
+            setShowResults(false);
+            setScore(0);
+            setActiveBlankId(null);
+            
+            if (storyData && storyData.stories && storyData.stories.length > activeStoryIdx) {
+                const currentStoryObj = storyData.stories[activeStoryIdx];
+                if (currentStoryObj && currentStoryObj.content) {
+                    const story = currentStoryObj.content;
+                    const currentDistractors = currentStoryObj.distractors || [];
+                    const storyIds = story.filter(p => p.type === 'blank').map(p => p.id);
+                    const storyWords = vocabList.filter(v => storyIds.includes(v.id)).map(v => v.word);
+                    setWordBank([...storyWords, ...currentDistractors].sort(() => 0.5 - Math.random()));
+                }
+            }
+        }, [activeStoryIdx, storyData, vocabList]);
+
+        if (!vocabList || vocabList.length === 0) return <EmptyState onBack={onBack} />;
+        
+        if (!storyData || !storyData.stories || storyData.stories.length === 0) {
+            const maxStories = Math.min(4, Math.max(1, Math.floor(vocabList.length / 3)));
+
+            return (
+                <div className="h-full flex flex-col items-center justify-center bg-rose-50 p-4 md:p-6 relative">
+                    {!userApiKey && (
+                        <div className="absolute top-4 left-4 right-4 bg-red-100 border border-red-300 text-red-700 p-4 rounded-xl flex items-start shadow-md">
+                            <AlertCircle className="w-5 h-5 mr-3 shrink-0 mt-0.5" />
+                            <p className="text-sm"><b>注意：</b> 未检测到 DeepSeek API Key。请点击首页右上角齿轮图标配置您自己的 API Key 才能生成阅读题。</p>
+                        </div>
+                    )}
+
+                    <FileText className="w-16 h-16 md:w-24 md:h-24 text-rose-300 mb-6 mt-10" />
+                    <h2 className="text-2xl md:text-4xl font-black text-rose-800 mb-2 text-center">定制AI阅读挑战</h2>
+                    <p className="text-sm md:text-base text-gray-600 mb-8 text-center max-w-md">选择你想生成的文章数量，DeepSeek AI将为你当前词库的单词自动编写连贯的英文故事并生成填空题。</p>
+                    
+                    <div className="flex flex-col items-center justify-center mb-8 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-rose-100 w-full max-w-md">
+                        <label className="text-gray-700 font-bold mb-6 text-lg md:text-xl">你需要生成几篇文章？</label>
+                        <div className="flex items-center gap-4 w-full px-2">
+                            <input 
+                                type="range" 
+                                min="1" 
+                                max={maxStories}
+                                value={storyCount} 
+                                onChange={(e) => setStoryCount(Number(e.target.value))} 
+                                className="flex-1 accent-rose-500 h-2 bg-rose-200 rounded-lg appearance-none cursor-pointer" 
+                            />
+                            <span className="text-rose-600 font-black text-3xl md:text-4xl w-10 text-center">{storyCount}</span>
+                        </div>
+                        <div className="mt-6 p-3 bg-rose-50 rounded-xl text-center w-full">
+                            <p className="text-xs md:text-sm text-rose-800 font-medium">将 <b>{vocabList.length}</b> 个生词分配到 <b>{storyCount}</b> 篇文章中</p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+                        <button onClick={onBack} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-2xl font-bold hover:bg-gray-300 transition-colors shadow">返回主页</button>
+                        <button onClick={() => onGenerate(storyCount)} disabled={isGenerating} className="px-6 py-3 bg-rose-500 text-white rounded-2xl font-bold hover:bg-rose-600 flex items-center justify-center shadow-lg transition-transform active:scale-95 disabled:opacity-50">
+                            {isGenerating ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Wand2 className="w-5 h-5 mr-2" />}
+                            {isGenerating ? "AI 创作中..." : "一键生成题目"}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        const currentStoryObj = storyData.stories[activeStoryIdx];
+        const story = currentStoryObj.content;
+        const usedWords = Object.values(answers);
+
+        const handleBlankClick = (id) => setActiveBlankId(id);
+
+        const handleWordClick = (word) => {
+            if (activeBlankId) {
+                setAnswers(prev => ({ ...prev, [activeBlankId]: word }));
+                setActiveBlankId(null);
+            }
+        };
+
+        const checkAnswers = () => {
+            let correct = 0;
+            story.forEach(part => {
+                if (part.type === 'blank') {
+                    const vocabItem = vocabList.find(v => v.id === part.id);
+                    if (vocabItem && answers[part.id]?.toLowerCase() === vocabItem.word.toLowerCase()) {
+                        correct++;
+                    }
+                }
+            });
+            setScore(correct);
+            setShowResults(true);
+        };
+
+        const handleSaveImage = async () => {
+            if (isSaving) return;
+            setIsSaving(true);
+            try {
+            if (!window.html2canvas) {
+                await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                script.onload = resolve;
+                script.onerror = () => reject("Failed to load html2canvas");
+                document.head.appendChild(script);
+                });
+            }
+            await new Promise(r => setTimeout(r, 100));
+            const element = document.getElementById('result-content');
+            if (!element) throw new Error("Result element not found");
+            
+            const originalOverflow = element.style.overflow;
+            const originalHeight = element.style.height;
+            const leftPanel = element.querySelector('#left-panel-fixed');
+            const rightPanel = element.querySelector('#right-panel-scroll');
+            let leftOriginalStyles = {}, rightOriginalStyles = {};
+
+            if (leftPanel) {
+                leftOriginalStyles = { overflow: leftPanel.style.overflow, height: leftPanel.style.height };
+                leftPanel.style.overflow = 'visible'; leftPanel.style.height = 'auto';
+                const innerContent = leftPanel.querySelector('.overflow-hidden');
+                if(innerContent) innerContent.style.overflow = 'visible';
+            }
+            if (rightPanel) {
+                rightOriginalStyles = { overflow: rightPanel.style.overflow, height: rightPanel.style.height };
+                rightPanel.style.overflow = 'visible'; rightPanel.style.height = 'auto';
+            }
+            element.style.overflow = 'visible'; element.style.height = 'auto';
+
+            const canvas = await window.html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#f9fafb", windowHeight: element.scrollHeight + 100 });
+            
+            element.style.overflow = originalOverflow; element.style.height = originalHeight;
+            if (leftPanel) { leftPanel.style.overflow = leftOriginalStyles.overflow; leftPanel.style.height = leftOriginalStyles.height; const innerContent = leftPanel.querySelector('.overflow-hidden'); if(innerContent) innerContent.style.overflow = 'hidden'; }
+            if (rightPanel) { rightPanel.style.overflow = rightOriginalStyles.overflow; rightPanel.style.height = rightOriginalStyles.height; }
+
+            const link = document.createElement('a');
+            link.download = `Reading_Challenge_Story${activeStoryIdx+1}.png`;
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+            } catch (err) { console.error("Screenshot failed:", err); alert("保存图片失败，请检查网络后重试。"); } 
+            finally { setIsSaving(false); }
+        };
+
+        if (showResults) {
+            const totalQuestions = story.filter(p => p.type === 'blank').length;
+            return (
+                <div className="h-full flex flex-col bg-gray-50">
+                    <div className="bg-rose-600 text-white p-3 md:p-4 flex justify-between items-center shadow-md shrink-0">
+                        <div className="flex items-center gap-2 md:gap-4">
+                            <button onClick={() => setShowResults(false)} className="flex items-center font-bold px-2 py-1 md:px-3 bg-rose-700 rounded-lg hover:bg-rose-800 transition text-sm md:text-base"><ArrowLeft className="w-4 h-4 mr-1"/> 返回修改</button>
+                            <h2 className="text-base md:text-xl font-bold">得分: {score}/{totalQuestions}</h2>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={onReset} className="px-2 py-1 md:px-3 md:py-2 bg-rose-800 rounded font-bold text-xs md:text-sm flex items-center hover:bg-rose-900 transition">
+                                <RefreshCw className="w-3 h-3 md:w-4 md:h-4 mr-1"/> 重置
+                            </button>
+                            <button onClick={onBack} className="px-2 py-1 bg-rose-800 rounded font-bold text-sm hidden md:block hover:bg-rose-900 transition">退出</button>
+                            <button onClick={handleSaveImage} disabled={isSaving} className={`flex items-center px-2 py-1 md:px-4 md:py-2 bg-white text-rose-600 rounded font-bold shadow hover:bg-gray-100 text-sm md:text-base ${isSaving ? 'opacity-70 cursor-wait' : ''}`}>
+                                {isSaving ? <Loader2 className="w-4 h-4 mr-1 md:mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-1 md:mr-2" />} <span className="hidden sm:inline">保存图片</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-hidden p-3 md:p-8" id="result-content">
+                        <div className="max-w-full h-full grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 overflow-y-auto md:overflow-hidden">
+                            <div className="bg-white p-5 md:p-8 rounded-2xl md:rounded-3xl shadow-lg border-t-8 border-gray-200 md:h-full md:overflow-hidden flex flex-col" id="left-panel-fixed">
+                                <h3 className="text-gray-400 font-bold uppercase tracking-widest mb-4 shrink-0 border-b pb-2 text-sm">{currentStoryObj.title || `Story ${activeStoryIdx + 1}`} - 原文</h3>
+                                <div className="text-base md:text-xl leading-loose text-gray-800 font-serif flex-1 md:overflow-hidden relative pb-8 md:pb-0"> 
+                                    <div className="absolute bottom-0 w-full h-12 bg-gradient-to-t from-white to-transparent pointer-events-none hidden md:block"></div>
+                                    {story.map((part, idx) => {
+                                        if (part.type === 'text') return <span key={idx}>{part.text}</span>;
+                                        const correctWord = vocabList.find(v => v.id === part.id)?.word;
+                                        const userAns = answers[part.id];
+                                        const isCorrect = userAns?.toLowerCase() === correctWord?.toLowerCase();
+                                        return (
+                                            <span key={idx} className={`font-bold px-1 md:px-2 py-0.5 md:py-1 mx-1 rounded border-b-2 ${isCorrect ? 'text-green-700 bg-green-50 border-green-500' : 'text-red-600 bg-red-50 border-red-500 decoration-wavy underline'}`}>
+                                                {userAns || "(空)"}
+                                            </span>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-5 md:p-8 rounded-2xl md:rounded-3xl shadow-lg border-t-8 border-rose-500 md:h-full md:overflow-y-auto custom-scrollbar overscroll-contain" id="right-panel-scroll">
+                                <h3 className="text-rose-500 font-bold uppercase tracking-widest mb-4 md:mb-6 sticky top-0 bg-white pb-2 border-b z-10 text-sm">错题解析与对照</h3>
+                                <div className="space-y-4 md:space-y-6">
+                                    {story.filter(p => p.type === 'blank').map((part, idx) => {
+                                        const userAns = answers[part.id];
+                                        const vocabItem = vocabList.find(v => v.id === part.id);
+                                        const isCorrect = userAns?.toLowerCase() === vocabItem?.word.toLowerCase();
+
+                                        if (isCorrect) return null; 
+
+                                        return (
+                                            <div key={idx} className="p-3 md:p-4 bg-gray-50 rounded-xl border-l-4 border-red-400">
+                                                <div className="flex justify-between mb-2">
+                                                    <span className="font-bold text-gray-500 text-xs md:text-sm">第 {idx+1} 空</span>
+                                                    <span className="text-red-500 font-bold text-xs md:text-sm">错误</span>
+                                                </div>
+                                                <div className="mb-1 md:mb-2">
+                                                    <span className="text-gray-400 text-xs md:text-sm">你的答案: </span>
+                                                    <span className="line-through decoration-red-500 text-gray-600 text-sm md:text-base">{userAns || "(未作答)"}</span>
+                                                </div>
+                                                <div className="mb-2 md:mb-3">
+                                                    <span className="text-green-600 font-bold text-xs md:text-sm">正确答案: </span>
+                                                    <span className="text-green-700 font-bold text-base md:text-lg">{vocabItem?.word}</span>
+                                                </div>
+                                                {vocabItem && (
+                                                    <div className="text-xs md:text-sm text-gray-700 italic bg-white p-2 md:p-3 rounded-lg border border-gray-200">
+                                                        <span className="font-bold not-italic text-gray-400 text-[10px] md:text-xs uppercase block mb-1">单词释义</span>
+                                                        {vocabItem.definition}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                    {score === totalQuestions && (
+                                        <div className="text-center py-6 md:py-10">
+                                            <Check className="w-12 h-12 md:w-16 md:h-16 text-green-500 mx-auto mb-4" />
+                                            <h3 className="text-xl md:text-2xl font-bold text-green-700">满分！</h3>
+                                            <p className="text-sm md:text-base text-gray-500">完全正确，无需修改。</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="h-full flex flex-col bg-rose-50">
+            <div className="bg-rose-600 text-white p-3 md:p-6 shadow-md flex justify-between items-center shrink-0">
+                <button onClick={onBack} className="flex items-center font-bold hover:bg-rose-700 px-2 py-1.5 md:px-3 md:py-2 rounded-xl transition-colors text-sm md:text-lg"><ArrowLeft className="w-4 h-4 md:w-6 md:h-6 md:mr-2" /> <span className="hidden sm:inline">退出</span></button>
+                
+                {storyData.stories.length > 1 && (
+                    <div className="flex bg-rose-800 p-1 rounded-lg gap-1 overflow-x-auto max-w-[50vw]">
+                        {storyData.stories.map((s, idx) => (
+                            <button 
+                                key={idx}
+                                onClick={() => setActiveStoryIdx(idx)} 
+                                className={`px-2 py-1 md:px-3 md:py-1.5 whitespace-nowrap rounded-md font-bold text-xs sm:text-sm transition-all ${activeStoryIdx === idx ? 'bg-white text-rose-600 shadow' : 'text-rose-200 hover:text-white'}`}
+                            >
+                                Story {idx + 1}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <button onClick={onReset} className="px-2 py-1.5 md:px-3 md:py-2 bg-rose-800 rounded-lg font-bold text-xs md:text-sm hover:bg-rose-900 transition flex items-center">
+                    <RefreshCw className="w-3 h-3 md:w-4 md:h-4 md:mr-1"/>
+                    <span className="hidden md:inline"> 重新设置</span>
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 md:p-10">
+                <div className="max-w-4xl mx-auto bg-white p-6 md:p-14 rounded-2xl md:rounded-3xl shadow-sm leading-[2] md:leading-[2.5] text-base md:text-2xl text-gray-800 font-serif relative">
+                    <h2 className="text-rose-500 font-bold tracking-widest text-xs md:text-sm mb-4 md:mb-6 text-center border-b pb-2 md:pb-4 uppercase">
+                        {currentStoryObj.title || `Story ${activeStoryIdx + 1}`}
+                    </h2>
+                    {story.map((part, idx) => {
+                        if (part.type === 'text') return <span key={idx}>{part.text}</span>;
+                        const isActive = activeBlankId === part.id;
+                        const hasAnswer = answers[part.id];
+                        return (
+                            <span 
+                                key={idx}
+                                onClick={() => handleBlankClick(part.id)}
+                                className={`inline-block min-w-[60px] md:min-w-[100px] border-b-2 md:border-b-4 mx-1 md:mx-2 px-1 md:px-2 text-center cursor-pointer font-bold rounded-t-lg select-none transition-all text-sm md:text-xl
+                                    ${isActive ? 'bg-yellow-200 border-yellow-500 text-yellow-900 scale-105 shadow-md' : hasAnswer ? 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100' : 'bg-gray-100 border-gray-300 text-gray-400 hover:bg-gray-200'}`}
+                            >
+                                {answers[part.id] || "______"}
+                            </span>
+                        );
+                    })}
+                </div>
+            </div>
+
+            <div className="bg-white border-t p-3 md:p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] shrink-0 z-20">
+                <p className="text-[10px] md:text-sm font-bold text-gray-400 uppercase tracking-widest mb-2 md:mb-4 text-center">
+                    {activeBlankId ? <span className="text-yellow-600 animate-pulse">在下方选择你要填入的单词...</span> : "先点击上方空格，再从词库中选择单词"}
+                </p>
+                <div className="flex flex-wrap gap-1.5 md:gap-3 justify-center max-w-5xl mx-auto mb-4 md:mb-6">
+                    {wordBank.map((word, idx) => {
+                        const isUsed = Object.values(answers).includes(word);
+                        return (
+                        <button 
+                            key={`${word}-${idx}`} 
+                            onClick={() => handleWordClick(word)}
+                            disabled={!activeBlankId || (isUsed && answers[activeBlankId] !== word)}
+                            className={`px-2 md:px-4 py-1.5 md:py-2 rounded-lg md:rounded-xl text-xs md:text-lg font-medium border shadow-sm transition-all
+                                ${!activeBlankId ? 'bg-gray-50 text-gray-300 border-transparent cursor-default' : isUsed && answers[activeBlankId] !== word ? 'bg-gray-200 text-gray-400 border-transparent cursor-not-allowed opacity-60' : 'bg-white hover:bg-yellow-50 border-gray-200 hover:border-yellow-400 text-gray-700 cursor-pointer transform hover:-translate-y-1'}`}
+                        >
+                            {word}
+                        </button>
+                    )})}
+                </div>
+                <button onClick={checkAnswers} className="w-full max-w-lg mx-auto block bg-rose-500 hover:bg-rose-600 text-white font-bold text-base md:text-xl py-3 md:py-4 rounded-xl md:rounded-2xl shadow-lg transition-transform active:scale-95">
+                    提交答案
+                </button>
+            </div>
+            </div>
+        );
+        };
+
+        // 6. MANAGER (Settings & Vocab Import)
+        const WordManager = ({ vocabList, setVocabList, userApiKey, setUserApiKey, onBack }) => {
+            const [rawText, setRawText] = useState("");
+            const [isImporting, setIsImporting] = useState(false);
+            const [importMsg, setImportMsg] = useState("");
+
+            const handleDelete = (id) => {
+                if(confirm("确定要删除这个单词吗？")) {
+                    setVocabList(vocabList.filter(v => v.id !== id));
+                }
+            };
+
+            const handleClearAll = () => {
+                if(confirm("确定要清空所有词库吗？此操作无法撤销。")) {
+                    setVocabList([]);
+                }
+            };
+
+            const handleImport = async () => {
+                if (!rawText.trim()) return;
+                if (!userApiKey) {
+                    setImportMsg("Error: 请先在左侧输入你的 DeepSeek API Key。");
+                    return;
+                }
+
+                setIsImporting(true);
+                setImportMsg("DeepSeek AI 正在解析单词并自动生成例句...");
+
+                try {
+                    const payload = {
+                        model: "deepseek-chat",
+                        messages: [
+                            {
+                                role: "system",
+                                content: "You are a helpful vocabulary assistant. Your task is to parse raw text into structured vocabulary data. Output ONLY a valid JSON object matching the requested schema. Do not include markdown code blocks like ```json."
+                            },
+                            {
+                                role: "user",
+                                content: `Parse the following raw vocabulary list. Some might just be 'Word - Definition'. \n\nFor each item, output a JSON object with: \n- 'word' (the vocabulary word/phrase)\n- 'definition' (clear meaning)\n- 'type' (part of speech, e.g., 'noun', 'phrasal verb', 'idiom')\n- 'example' (a good example sentence where the vocabulary word is replaced EXACTLY by '____').\n\nReturn ONLY a JSON object with a single key "words" containing an array of these objects.\n\nRaw Input:\n${rawText}`
+                            }
+                        ],
+                        response_format: { type: "json_object" }
+                    };
+
+                    const url = "[https://api.deepseek.com/chat/completions](https://api.deepseek.com/chat/completions)";
+                    const result = await fetchWithRetry(url, {
+                        method: "POST",
+                        headers: { 
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${userApiKey}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const textResponse = result.choices?.[0]?.message?.content;
+                    if (textResponse) {
+                        const parsedResponse = JSON.parse(textResponse);
+                        const newWords = parsedResponse.words || [];
+                        
+                        if (newWords.length === 0) throw new Error("No words parsed.");
+
+                        const maxId = vocabList.reduce((max, item) => Math.max(max, item.id), 0);
+                        const wordsWithIds = newWords.map((w, index) => ({ ...w, id: maxId + index + 1 }));
+                        
+                        setVocabList(prev => [...prev, ...wordsWithIds]);
+                        setRawText("");
+                        setImportMsg(`导入成功！新增了 ${newWords.length} 个单词。`);
+                        setTimeout(() => setImportMsg(""), 3000);
+                    } else {
+                        throw new Error("Empty response from AI");
+                    }
+                } catch (error) {
+                    console.error(error);
+                    setImportMsg("解析错误。请检查您的 DeepSeek API Key 和网络状态。");
+                } finally {
+                    setIsImporting(false);
+                }
+            };
+
+            return (
+                <div className="h-full flex flex-col bg-slate-50 relative overflow-hidden">
+                    <div className="bg-slate-800 text-white p-4 md:p-6 shadow-md flex justify-between items-center shrink-0 z-10">
+                        <button onClick={onBack} className="flex items-center font-bold hover:bg-slate-700 px-2 py-1 md:px-3 md:py-2 rounded-xl transition-colors text-sm md:text-base"><ArrowLeft className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2" /> 返回</button>
+                        <h2 className="text-base md:text-xl font-bold flex items-center"><Database className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"/> 数据与词库</h2>
+                        <div className="w-10 md:w-20"></div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8">
+                        <div className="space-y-4 md:space-y-6">
+                            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
+                                <h3 className="font-bold text-slate-700 mb-2 flex items-center text-sm md:text-base"><Brain className="w-4 h-4 md:w-5 md:h-5 mr-2 text-blue-500"/> DeepSeek AI 设置</h3>
+                                <p className="text-[10px] md:text-xs text-slate-500 mb-4">输入 API Key 启用 AI 造句和阅读功能 (仅存本地浏览器)。</p>
+                                <input 
+                                    type="password" 
+                                    placeholder="输入 API Key (sk-...)" 
+                                    value={userApiKey}
+                                    onChange={(e) => setUserApiKey(e.target.value)}
+                                    className="w-full p-2 md:p-3 border border-slate-300 rounded-lg text-xs md:text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                            </div>
+
+                            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col min-h-[300px] md:h-[400px]">
+                                <h3 className="font-bold text-slate-700 mb-2 flex items-center text-sm md:text-base"><PlusCircle className="w-4 h-4 md:w-5 md:h-5 mr-2 text-green-500"/> 批量导入新词</h3>
+                                <p className="text-[10px] md:text-xs text-slate-500 mb-2 md:mb-4">粘贴 "单词 - 释义" ，DeepSeek 自动补全词性和例句。</p>
+                                <textarea 
+                                    value={rawText}
+                                    onChange={(e) => setRawText(e.target.value)}
+                                    placeholder="例如:&#10;Apple - 一种水果&#10;Run - 移动得很快"
+                                    className="flex-1 w-full p-2 md:p-3 border border-slate-300 rounded-lg text-xs md:text-sm resize-none focus:ring-2 focus:ring-green-500 outline-none mb-4"
+                                />
+                                {importMsg && <p className={`text-[10px] md:text-sm mb-2 md:mb-3 font-bold ${importMsg.includes('Error') || importMsg.includes('错误') || importMsg.includes('失败') ? 'text-red-500' : 'text-green-600'}`}>{importMsg}</p>}
+                                <button 
+                                    onClick={handleImport} 
+                                    disabled={isImporting || !rawText.trim()}
+                                    className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 md:py-3 rounded-xl shadow transition-transform active:scale-95 disabled:opacity-50 flex items-center justify-center shrink-0 text-sm md:text-base"
+                                >
+                                    {isImporting ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin mr-2"/> : <Wand2 className="w-4 h-4 md:w-5 md:h-5 mr-2"/>}
+                                    {isImporting ? "处理中..." : "AI 智能导入"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[400px] md:h-full lg:max-h-[80vh]">
+                            <div className="flex justify-between items-end mb-4 border-b pb-2">
+                                <div>
+                                    <h3 className="font-bold text-slate-700 text-sm md:text-base">当前词库</h3>
+                                    <p className="text-[10px] md:text-xs text-slate-500">已加载 {vocabList.length} 个单词</p>
+                                </div>
+                                <button onClick={handleClearAll} className="text-red-500 hover:text-red-700 text-xs md:text-sm font-bold flex items-center"><Trash2 className="w-3 h-3 md:w-4 md:h-4 mr-1"/> 清空</button>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto space-y-2 md:space-y-3 custom-scrollbar pr-2">
+                                {vocabList.length === 0 ? (
+                                    <p className="text-slate-400 text-center mt-10 text-xs md:text-sm">词库空空如也，快去左侧导入吧！</p>
+                                ) : (
+                                    vocabList.map((v) => (
+                                        <div key={v.id} className="bg-slate-50 p-2 md:p-3 rounded-lg border border-slate-100 flex justify-between items-start group hover:border-slate-300 transition-colors">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="font-bold text-slate-800 text-sm md:text-base">{v.word}</span>
+                                                    <span className="text-[8px] md:text-[10px] uppercase bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">{v.type}</span>
+                                                </div>
+                                                <p className="text-[10px] md:text-xs text-slate-600 leading-snug">{v.definition}</p>
+                                            </div>
+                                            <button onClick={() => handleDelete(v.id)} className="text-slate-300 hover:text-red-500 p-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <X className="w-3 h-3 md:w-4 md:h-4" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )
+        };
+
+        const EmptyState = ({ onBack, message = "当前词库为空。" }) => (
+            <div className="flex flex-col items-center justify-center h-full bg-gray-50 p-6 text-center">
+                <BookOpen className="w-16 h-16 md:w-20 md:h-20 text-gray-300 mb-4 md:mb-6" />
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-700 mb-2 md:mb-4">空空如也</h2>
+                <p className="text-sm md:text-base text-gray-500 mb-6 md:mb-8">{message} 请先前往词库管理器添加你想背的单词。</p>
+                <button onClick={onBack} className="px-6 py-2 md:px-8 md:py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg">返回菜单</button>
+            </div>
+        );
+
+        // --- MAIN APP ---
+        function App() {
+        const [view, setView] = useState('home');
+        
+        const [vocabList, setVocabList] = useState(() => {
+            const saved = localStorage.getItem('vocab_app_data');
+            return saved ? JSON.parse(saved) : defaultVocab;
+        });
+        const [storyData, setStoryData] = useState(() => {
+            const saved = localStorage.getItem('vocab_app_story');
+            return saved ? JSON.parse(saved) : null;
+        }); 
+        const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+        const [userApiKey, setUserApiKey] = useState(() => {
+            return localStorage.getItem('deepseek_app_apikey') || "";
+        });
+
+        useEffect(() => {
+            localStorage.setItem('vocab_app_data', JSON.stringify(vocabList));
+        }, [vocabList]);
+
+        useEffect(() => {
+            if (storyData) localStorage.setItem('vocab_app_story', JSON.stringify(storyData));
+            else localStorage.removeItem('vocab_app_story');
+        }, [storyData]);
+
+        useEffect(() => {
+            localStorage.setItem('deepseek_app_apikey', userApiKey);
+        }, [userApiKey]);
+
+        const handleGenerateStory = async (count) => {
+            if (!userApiKey) {
+                alert("请先在设置（右上角齿轮）中输入您的 DeepSeek API Key！");
+                setView('manager');
+                return;
+            }
+            if (vocabList.length === 0) {
+                alert("词库为空，请先添加单词！");
+                return;
+            }
+
+            setIsGeneratingStory(true);
+            try {
+                const vocabPrompt = vocabList.map(v => `ID ${v.id}: ${v.word} (${v.definition})`).join('\n');
+                
+                const payload = {
+                    model: "deepseek-chat",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are an expert English teacher. Output ONLY a valid JSON object matching the exact requested schema. Do not include any markdown formatting like ```json."
+                        },
+                        {
+                            role: "user",
+                            content: `I have a vocabulary list of ${vocabList.length} words/phrases. I want you to write ${count} coherent, engaging short stories (each around 100-200 words).
+                            
+        CRITICAL RULES:
+        1. DIVIDE the vocabulary list evenly among the ${count} stories. 
+        2. Every vocabulary word/phrase from the list MUST be used exactly ONCE across all stories combined. Do not reuse words across different stories.
+        3. For each story, provide a short 'title' and 2 plausible fake vocabulary words as 'distractors'.
+        4. Format the text content as an array of objects. Normal text = {"text": "...", "type": "text", "id": 0}. Vocabulary blank = {"text": "the_word", "type": "blank", "id": THE_MATCHING_ID}.
+
+        Return ONLY a JSON object with a single key "stories" containing an array of story objects matching this structure.
+
+        Vocabulary List:
+        ${vocabPrompt}`
+                        }
+                    ],
+                    response_format: { type: "json_object" }
+                };
+
+                const url = "https://api.deepseek.com/chat/completions";
+                const result = await fetchWithRetry(url, {
+                    method: "POST",
+                    headers: { 
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${userApiKey}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const textResponse = result.choices?.[0]?.message?.content;
+                if (textResponse) {
+                    setStoryData(JSON.parse(textResponse));
+                } else {
+                    throw new Error("Empty response");
+                }
+            } catch (error) {
+                console.error(error);
+                alert("故事生成失败，可能是 DeepSeek 余额不足或网络连接问题。");
+            } finally {
+                setIsGeneratingStory(false);
+            }
+        };
+
+        const MenuButton = ({ title, sub, icon: Icon, color, onClick }) => (
+            <button onClick={onClick} className={`${color} text-white p-3 md:p-4 rounded-[1.5rem] md:rounded-[2rem] shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 flex flex-col items-center justify-center gap-1 md:gap-2 w-full h-24 md:h-40 relative overflow-hidden group`}>
+                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity transform scale-150"><Icon className="w-16 h-16 md:w-24 md:h-24" /></div>
+                <Icon className="w-8 h-8 md:w-12 md:h-12 z-10" />
+                <div className="z-10 text-center">
+                    <span className="font-black text-sm md:text-2xl tracking-wide block">{title}</span>
+                    {sub && <span className="text-white/80 font-medium text-[10px] md:text-sm mt-0.5 md:mt-1 block">{sub}</span>}
+                </div>
+            </button>
+        );
+
+        if (view === 'manager') return <WordManager vocabList={vocabList} setVocabList={setVocabList} userApiKey={userApiKey} setUserApiKey={setUserApiKey} onBack={() => setView('home')} />;
+        if (view === 'cards') return <Flashcards vocabList={vocabList} onBack={() => setView('home')} />;
+        if (view === 'context') return <ContextMaster vocabList={vocabList} onBack={() => setView('home')} />;
+        if (view === 'game') return <WhackAMole vocabList={vocabList} onBack={() => setView('home')} />;
+        if (view === 'spell') return <Spelling vocabList={vocabList} onBack={() => setView('home')} />;
+        if (view === 'reading') return <ReadingCloze vocabList={vocabList} storyData={storyData} onGenerate={handleGenerateStory} isGenerating={isGeneratingStory} onBack={() => setView('home')} onReset={() => setStoryData(null)} userApiKey={userApiKey} />;
+
+        return (
+            <div className="min-h-screen bg-slate-100 flex items-center justify-center p-2 md:p-6 font-sans">
+            <div className="bg-white w-full max-w-4xl rounded-2xl md:rounded-[3rem] shadow-2xl overflow-hidden h-[95vh] md:min-h-[85vh] md:h-auto flex flex-col border border-slate-200">
+                
+                {/* Header */}
+                <div className="pt-8 pb-6 md:pt-6 md:pb-4 text-center bg-slate-800 text-white relative shrink-0">
+                    <button onClick={() => setView('manager')} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 bg-slate-700 hover:bg-slate-600 rounded-full transition-colors group" title="Manage Words & DeepSeek API">
+                        <Settings className="w-5 h-5 md:w-6 md:h-6 text-slate-300 group-hover:text-white" />
+                    </button>
+                    <div className="inline-flex items-center justify-center gap-2 md:gap-3 mb-1">
+                        <Brain className="w-8 h-8 md:w-12 md:h-12 text-blue-400" />
+                        <h1 className="text-2xl md:text-4xl font-black tracking-tight">AI Vocab Studio</h1>
+                    </div>
+                    <p className="text-slate-400 font-bold text-xs md:text-sm tracking-[0.1em] md:tracking-[0.2em] uppercase mt-1">Powered by DeepSeek</p>
+                    <div className="mt-3 md:mt-4 inline-block bg-slate-700 px-3 py-1 rounded-full text-xs md:text-sm font-medium text-slate-300">
+                        当前专属词库: <span className="text-white font-bold">{vocabList.length}</span> 个词组
+                    </div>
+                </div>
+
+                {/* Main Menu Grid */}
+                <div className="flex-1 p-4 md:p-10 flex flex-col justify-center bg-slate-50 overflow-y-auto">
+                    <div className="grid grid-cols-2 gap-3 md:gap-6 mb-4 md:mb-6">
+                        <MenuButton title="单词闪卡" sub="记忆与复习" icon={BookOpen} color="bg-blue-500" onClick={() => setView('cards')} />
+                        <MenuButton title="语境匹配" sub="测试释义理解" icon={Brain} color="bg-emerald-500" onClick={() => setView('context')} />
+                        <MenuButton title="打地鼠" sub="例句填空" icon={Hammer} color="bg-cyan-500" onClick={() => setView('game')} />
+                        <MenuButton title="听写拼写" sub="强化拼写" icon={Edit3} color="bg-orange-500" onClick={() => setView('spell')} />
+                    </div>
+                    
+                    <button onClick={() => setView('reading')} className="w-full bg-rose-500 hover:bg-rose-600 text-white p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 flex items-center justify-center gap-4 md:gap-6 relative overflow-hidden group h-24 md:h-40">
+                        <div className="absolute -left-4 md:-left-10 top-1/2 transform -translate-y-1/2 opacity-10 group-hover:opacity-20 rotate-12">
+                            <Wand2 className="w-24 h-24 md:w-48 md:h-48" />
+                        </div>
+                        <FileText className="w-8 h-8 md:w-16 md:h-16 z-10" />
+                        <div className="text-left z-10">
+                            <span className="font-black text-lg md:text-3xl block">AI 阅读挑战</span>
+                            <span className="text-rose-100 font-medium text-[10px] md:text-base">基于 DeepSeek 自动生成专属故事</span>
+                        </div>
+                    </button>
+                </div>
+
+            </div>
+            </div>
+        );
+        }
+    </script>
+</body>
+</html>
